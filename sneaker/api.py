@@ -1,20 +1,20 @@
-"""FastAPI application for Creeper observability service."""
+"""FastAPI application for Sneaker observability service."""
 
 import os
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 
-from creeper.models import MetricPoint, TraceSpan, LogEntry
+from sneaker.models import MetricPoint, TraceSpan, LogEntry
 
 
 app = FastAPI(
-    title="Creeper",
+    title="Sneaker",
     description="Observability service for the Evershade ecosystem",
     version="1.0.0",
 )
 
-API_KEY = os.getenv("API_KEY", "Creeper-dev-key-change-me")
+API_KEY = os.getenv("API_KEY", "Sneaker-dev-key-change-me")
 
 # In-memory storage
 _metrics: list[MetricPoint] = []
@@ -29,7 +29,7 @@ def verify_key(x_key: Optional[str] = Query(None)) -> None:
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "Creeper"}
+    return {"status": "ok", "service": "Sneaker"}
 
 
 # ─── Metrics ────────────────────────────────────────────────────

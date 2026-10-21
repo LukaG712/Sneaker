@@ -1,4 +1,4 @@
-"""Data models for Creeper observability service."""
+"""Data models for Sneaker observability service."""
 
 from datetime import datetime
 from typing import Any, Optional

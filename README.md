@@ -1,11 +1,11 @@
-# Creeper
+# Sneaker
 
 > *"These ghosts seem unassailable, don't worry they're still inhalable!"*
 > ~ **Prof. E. Gadd**, on facing any challenge
 
-**Creeper** is the observability service for the Evershade ecosystem. It collects metrics, traces, and logs from all services, providing a unified view of system health and performance.
+**Sneaker** is the observability service for the Evershade ecosystem. It collects metrics, traces, and logs from all services, providing a unified view of system health and performance.
 
-**Luigi's Mansion origin:** *Creeper* ~ creeping ghosts from Luigi's Mansion: Dark Moon that slowly move along walls and floors, always watching.
+**Luigi's Mansion origin:** *Sneaker* ~ quiet ghosts from Luigi's Mansion: Dark Moon that sneak up silently, perfect for quietly monitoring everything.
 
 ## Features
 
@@ -17,11 +17,11 @@
 
 ```bash
 # With Docker
-docker compose up -d Creeper
+docker compose up -d Sneaker
 
 # Direct
 pip install -e ".[dev]"
-python -m uvicorn creeper.api:app --host 0.0.0.0 --port 8086
+python -m uvicorn sneaker.api:app --host 0.0.0.0 --port 8086
 ```
 
 ## API
@@ -33,7 +33,7 @@ python -m uvicorn creeper.api:app --host 0.0.0.0 --port 8086
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `API_KEY` | `Creeper-dev-key-change-me` | API authentication key |
+| `API_KEY` | `Sneaker-dev-key-change-me` | API authentication key |
 | `PORT` | `8086` | Server port |
 
 ## License

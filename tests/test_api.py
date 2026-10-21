@@ -1,10 +1,10 @@
-"""Tests for Creeper observability service."""
+"""Tests for Sneaker observability service."""
 
 import os
 import pytest
 from fastapi.testclient import TestClient
 
-from creeper.api import app, _metrics, _traces, _logs
+from sneaker.api import app, _metrics, _traces, _logs
 
 
 @pytest.fixture(autouse=True)
@@ -25,7 +25,7 @@ class TestHealth:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "ok"
-        assert data["service"] == "Creeper"
+        assert data["service"] == "Sneaker"
 
 
 class TestMetrics:

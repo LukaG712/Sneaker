@@ -21,7 +21,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
       - name: Lint with ruff
-        run: ruff check creeper/ tests/
+        run: ruff check sneaker/ tests/
       - name: Run tests
         env:
           API_KEY: test-ci-key
