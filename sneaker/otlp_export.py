@@ -9,9 +9,11 @@ Configuration:
     OTLP_INSECURE: Use insecure connection for OTLP forwarding (default: true)
 """
 
+import asyncio
 import json
 import logging
 import os
+import re
 import time
 from typing import Any
 
@@ -27,6 +29,136 @@ logger = logging.getLogger(__name__)
 
 OTLP_ENDPOINT = os.environ.get("OTLP_ENDPOINT", "")
 OTLP_INSECURE = os.environ.get("OTLP_INSECURE", "true").lower() in ("true", "1", "yes")
+
+
+# ─── Secret Redaction ─────────────────────────────────────────────
+
+# Patterns that indicate a value is likely a secret
+_SECRET_PATTERNS = [
+    re.compile(r'(?:^|[^A-Za-z0-9_])(?:api[_-]?key|apikey|token|secret|password|passwd|pwd|auth|credential|access[_-]?key|private[_-]?key)(?:[^A-Za-z0-9_]|$)', re.IGNORECASE),
+    re.compile(r'(?:^|[^A-Za-z0-9_])(?:aws|azure|gcp|google)[_-]?(?:access|secret|key|token|credential)(?:[^A-Za-z0-9_]|$)', re.IGNORECASE),
+]
+
+# Values that are obviously placeholders or defaults
+_INSECURE_VALUES = {
+    "changeme", "password", "admin", "secret", "default", "test",
+    "your-api-key", "your-api-key-here", "your-secret-here",
+    "insert-key-here", "replace-me", "xxx", "12345",
+}
+
+REDACTED = "**REDACTED**"
+
+
+def _is_secret_key(key: str) -> bool:
+    """Check if a key name suggests it holds a secret value."""
+    for pattern in _SECRET_PATTERNS:
+        if pattern.search(key):
+            return True
+    return False
+
+
+def _should_redact_value(value: str) -> bool:
+    """Check if a value looks like an insecure default that should be redacted."""
+    lower = value.strip().lower()
+    if lower in _INSECURE_VALUES:
+        return True
+    # Look for long base64-like strings (likely tokens/keys)
+    if len(value) > 30 and re.match(r'^[A-Za-z0-9+/=_\-]+$', value):
+        return True
+    return False
+
+
+def redact_secrets_in_attributes(attributes: list) -> list:
+    """Redact secret values from OTLP attributes.
+
+    Args:
+        attributes: List of attribute dicts with 'key' and 'value' fields.
+
+    Returns:
+        New list with secret values replaced by **REDACTED**.
+    """
+    redacted = []
+    for attr in attributes:
+        key = attr.get("key", "")
+        value = attr.get("value", {})
+        str_value = value.get("stringValue", "")
+
+        if _is_secret_key(key) or _should_redact_value(str_value):
+            new_attr = dict(attr)
+            new_value = dict(value)
+            new_value["stringValue"] = REDACTED
+            new_attr["value"] = new_value
+            redacted.append(new_attr)
+            logger.debug(f"Redacted secret attribute: {key}")
+        else:
+            redacted.append(attr)
+
+    return redacted
+
+
+def redact_secrets_in_traces(data: bytes) -> bytes:
+    """Redact secrets from OTLP trace data before storage and forwarding.
+
+    Args:
+        data: Raw OTLP trace JSON bytes.
+
+    Returns:
+        JSON bytes with secrets redacted.
+    """
+    try:
+        content = json.loads(data)
+        modified = False
+        for resource_span in content.get("resourceSpans", []):
+            resource = resource_span.get("resource", {})
+            if resource.get("attributes"):
+                resource["attributes"] = redact_secrets_in_attributes(resource["attributes"])
+                modified = True
+            for scope_span in resource_span.get("scopeSpans", []):
+                for span in scope_span.get("spans", []):
+                    if span.get("attributes"):
+                        span["attributes"] = redact_secrets_in_attributes(span["attributes"])
+                        modified = True
+        if modified:
+            return json.dumps(content).encode()
+    except (json.JSONDecodeError, KeyError):
+        pass
+    return data
+
+
+def redact_secrets_in_logs(data: bytes) -> bytes:
+    """Redact secrets from OTLP log data before storage and forwarding.
+
+    Args:
+        data: Raw OTLP log JSON bytes.
+
+    Returns:
+        JSON bytes with secrets redacted.
+    """
+    try:
+        content = json.loads(data)
+        modified = False
+        for resource_log in content.get("resourceLogs", []):
+            resource = resource_log.get("resource", {})
+            if resource.get("attributes"):
+                resource["attributes"] = redact_secrets_in_attributes(resource["attributes"])
+                modified = True
+            for scope_log in resource_log.get("scopeLogs", []):
+                for log_record in scope_log.get("logRecords", []):
+                    if log_record.get("attributes"):
+                        log_record["attributes"] = redact_secrets_in_attributes(log_record["attributes"])
+                        modified = True
+                    # Redact secrets in log body
+                    body = log_record.get("body", {})
+                    if isinstance(body, dict):
+                        str_value = body.get("stringValue", "")
+                        if _should_redact_value(str_value):
+                            body["stringValue"] = REDACTED
+                            modified = True
+        if modified:
+            return json.dumps(content).encode()
+    except (json.JSONDecodeError, KeyError):
+        pass
+    return data
 
 
 # ─── In-memory storage (shared with api.py) ──────────────────────
@@ -231,6 +363,7 @@ async def export_to_otlp_endpoint(
 
     If OTLP_ENDPOINT is configured, forwards the data via HTTP/JSON.
     This allows Sneaker to act as a proxy to a central collector.
+    Retries up to 3 times with exponential backoff on transient failures.
 
     Args:
         signal_type: One of 'traces', 'metrics', 'logs'.
@@ -242,22 +375,51 @@ async def export_to_otlp_endpoint(
     if not OTLP_ENDPOINT:
         return True  # No endpoint configured, nothing to forward
 
-    try:
-        import httpx
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            url = f"{OTLP_ENDPOINT.rstrip('/')}/v1/{signal_type}"
-            headers = {"Content-Type": "application/x-protobuf"}
+    max_retries = 3
+    base_delay = 1.0
 
-            response = await client.post(url, content=data, headers=headers)
-            if response.status_code in (200, 202):
-                logger.info(f"Forwarded {signal_type} to OTLP endpoint")
-                return True
+    for attempt in range(max_retries):
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                url = f"{OTLP_ENDPOINT.rstrip('/')}/v1/{signal_type}"
+                headers = {"Content-Type": "application/x-protobuf"}
+
+                response = await client.post(url, content=data, headers=headers)
+                if response.status_code in (200, 202):
+                    if attempt > 0:
+                        logger.info(f"Forwarded {signal_type} to OTLP endpoint after {attempt + 1} attempts")
+                    else:
+                        logger.info(f"Forwarded {signal_type} to OTLP endpoint")
+                    return True
+                elif response.status_code >= 500 and attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    logger.warning(
+                        f"OTLP forward failed with {response.status_code}, "
+                        f"retrying in {delay:.1f}s (attempt {attempt + 2}/{max_retries})"
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    logger.warning(f"OTLP forward failed: {response.status_code}")
+                    return False
+        except (ConnectionError, OSError) as e:
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                logger.warning(
+                    f"OTLP forward connection error, retrying in {delay:.1f}s "
+                    f"(attempt {attempt + 2}/{max_retries}): {e}"
+                )
+                await asyncio.sleep(delay)
+                continue
             else:
-                logger.warning(f"OTLP forward failed: {response.status_code}")
+                logger.warning(f"Failed to forward to OTLP endpoint after {max_retries} attempts: {e}")
                 return False
-    except Exception as e:
-        logger.warning(f"Failed to forward to OTLP endpoint: {e}")
-        return False
+        except Exception as e:
+            logger.warning(f"Failed to forward to OTLP endpoint: {e}")
+            return False
+
+    return False
 
 
 # ─── FastAPI Routes ──────────────────────────────────────────────
@@ -281,9 +443,14 @@ def register_otlp_routes(app: FastAPI) -> None:
         """Receive traces via OTLP protocol.
 
         Accepts both JSON and protobuf-encoded OTLP trace data.
+        Secrets in attributes are automatically redacted.
         """
         content_type = request.headers.get("content-type", "")
         data = await request.body()
+
+        # Redact secrets before processing
+        if "json" in content_type:
+            data = redact_secrets_in_traces(data)
 
         if "json" in content_type:
             spans = parse_otlp_traces(data)
@@ -340,9 +507,14 @@ def register_otlp_routes(app: FastAPI) -> None:
         """Receive logs via OTLP protocol.
 
         Accepts both JSON and protobuf-encoded OTLP log data.
+        Secrets in attributes and log bodies are automatically redacted.
         """
         content_type = request.headers.get("content-type", "")
         data = await request.body()
+
+        # Redact secrets before processing
+        if "json" in content_type:
+            data = redact_secrets_in_logs(data)
 
         if "json" in content_type:
             logs = parse_otlp_logs(data)

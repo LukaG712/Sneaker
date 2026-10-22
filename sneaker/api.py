@@ -111,6 +111,67 @@ async def query_metrics(
     return [m.to_dict() for m in results[-limit:]]
 
 
+@app.get("/api/metrics/summary")
+async def metrics_summary(authorization: str | None = Header(None)) -> dict[str, Any]:
+    """Return a summary of key metrics including latency percentiles and error counts.
+
+    This endpoint provides aggregated metrics for dashboards and monitoring:
+    - Request latency percentiles (p50, p95, p99) from trace durations
+    - Error counts by service from logs
+    - Queue depth (pending traces, metrics, logs)
+    - Task duration statistics
+    """
+    verify_bearer(authorization)
+
+    # Calculate latency percentiles from traces
+    durations = [t.duration_ms for t in _traces if t.duration_ms > 0]
+    durations.sort()
+    n = len(durations)
+
+    def percentile(data, p):
+        if not data:
+            return 0.0
+        k = (len(data) - 1) * (p / 100.0)
+        f = int(k)
+        c = f + 1 if f + 1 < len(data) else f
+        d = k - f
+        return data[f] + d * (data[c] - data[f])
+
+    # Count errors by service from logs
+    errors_by_service = {}
+    for entry in _logs:
+        if entry.level in ("ERROR", "CRITICAL"):
+            svc = entry.service or "unknown"
+            errors_by_service[svc] = errors_by_service.get(svc, 0) + 1
+
+    # Queue depths
+    queue_depth = {
+        "pending_traces": len(_traces),
+        "pending_metrics": len(_metrics),
+        "pending_logs": len(_logs),
+    }
+
+    return {
+        "latency": {
+            "p50_ms": round(percentile(durations, 50), 2),
+            "p95_ms": round(percentile(durations, 95), 2),
+            "p99_ms": round(percentile(durations, 99), 2),
+            "min_ms": round(durations[0], 2) if durations else 0,
+            "max_ms": round(durations[-1], 2) if durations else 0,
+            "count": n,
+        },
+        "errors": {
+            "total": sum(errors_by_service.values()),
+            "by_service": errors_by_service,
+        },
+        "queue_depth": queue_depth,
+        "task_duration": {
+            "avg_ms": round(sum(durations) / n, 2) if n > 0 else 0,
+            "total_traces": len(_traces),
+        },
+    }
+
+
 # ─── Traces ─────────────────────────────────────────────────────
 
 @app.post("/api/traces")
