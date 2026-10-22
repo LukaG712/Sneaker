@@ -9,17 +9,16 @@ Configuration:
     OTLP_INSECURE: Use insecure connection for OTLP forwarding (default: true)
 """
 
-import asyncio
 import json
 import logging
 import os
 import time
-from typing import Any, Optional
+from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.responses import Response
 
-from sneaker.models import MetricPoint, TraceSpan, LogEntry
+from sneaker.models import LogEntry, MetricPoint, TraceSpan
 
 logger = logging.getLogger(__name__)
 
@@ -476,15 +475,15 @@ def register_otlp_routes(app: FastAPI) -> None:
                 "scope": {"name": "Sneaker", "version": "1.0.0"},
                 "logRecords": [
                     {
-                        "body": {"stringValue": l.message},
-                        "severityNumber": severity_map.get(l.level, 9),
-                        "severityText": l.level,
+                        "body": {"stringValue": entry.message},
+                        "severityNumber": severity_map.get(entry.level, 9),
+                        "severityText": entry.level,
                         "attributes": [
                             {"key": k, "value": {"stringValue": str(v)}}
-                            for k, v in (l.metadata or {}).items()
+                            for k, v in (entry.metadata or {}).items()
                         ],
                     }
-                    for l in logs
+                    for entry in logs
                 ],
             }],
         }]

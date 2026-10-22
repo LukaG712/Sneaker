@@ -1,14 +1,13 @@
 """FastAPI application for Sneaker observability service."""
 
-import os
 import hmac
-from typing import Any, Optional
+import os
+from typing import Any
 
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, Header, HTTPException
 
-from sneaker.models import MetricPoint, TraceSpan, LogEntry
 from sneaker import otlp_export
-
+from sneaker.models import LogEntry, MetricPoint, TraceSpan
 
 app = FastAPI(
     title="Sneaker",
@@ -30,7 +29,7 @@ otlp_export.register_stores(_metrics, _traces, _logs)
 otlp_export.register_otlp_routes(app)
 
 
-def verify_bearer(authorization: Optional[str] = Header(None)) -> None:
+def verify_bearer(authorization: str | None = Header(None)) -> None:
     """Verify Bearer token in Authorization header."""
     if authorization and authorization.startswith("Bearer "):
         token = authorization[7:]
@@ -48,7 +47,7 @@ async def health() -> dict[str, str]:
 # ─── Metrics ────────────────────────────────────────────────────
 
 @app.post("/api/metrics")
-async def record_metric(data: dict[str, Any], authorization: Optional[str] = Header(None)) -> dict[str, Any]:
+async def record_metric(data: dict[str, Any], authorization: str | None = Header(None)) -> dict[str, Any]:
     verify_bearer(authorization)
     metric = MetricPoint(name=data["name"], value=float(data["value"]), labels=data.get("labels"))
     _metrics.append(metric)
@@ -57,9 +56,9 @@ async def record_metric(data: dict[str, Any], authorization: Optional[str] = Hea
 
 @app.get("/api/metrics")
 async def query_metrics(
-    name: Optional[str] = None,
+    name: str | None = None,
     limit: int = 100,
-    authorization: Optional[str] = Header(None),
+    authorization: str | None = Header(None),
 ) -> list[dict[str, Any]]:
     verify_bearer(authorization)
     results = _metrics
@@ -71,7 +70,7 @@ async def query_metrics(
 # ─── Traces ─────────────────────────────────────────────────────
 
 @app.post("/api/traces")
-async def record_trace(data: dict[str, Any], authorization: Optional[str] = Header(None)) -> dict[str, Any]:
+async def record_trace(data: dict[str, Any], authorization: str | None = Header(None)) -> dict[str, Any]:
     verify_bearer(authorization)
     span = TraceSpan(
         trace_id=data["trace_id"],
@@ -86,10 +85,10 @@ async def record_trace(data: dict[str, Any], authorization: Optional[str] = Head
 
 @app.get("/api/traces")
 async def query_traces(
-    trace_id: Optional[str] = None,
-    service: Optional[str] = None,
+    trace_id: str | None = None,
+    service: str | None = None,
     limit: int = 100,
-    authorization: Optional[str] = Header(None),
+    authorization: str | None = Header(None),
 ) -> list[dict[str, Any]]:
     verify_bearer(authorization)
     results = _traces
@@ -103,7 +102,7 @@ async def query_traces(
 # ─── Logs ───────────────────────────────────────────────────────
 
 @app.post("/api/logs")
-async def record_log(data: dict[str, Any], authorization: Optional[str] = Header(None)) -> dict[str, Any]:
+async def record_log(data: dict[str, Any], authorization: str | None = Header(None)) -> dict[str, Any]:
     verify_bearer(authorization)
     entry = LogEntry(
         level=data["level"],
@@ -117,15 +116,15 @@ async def record_log(data: dict[str, Any], authorization: Optional[str] = Header
 
 @app.get("/api/logs")
 async def query_logs(
-    service: Optional[str] = None,
-    level: Optional[str] = None,
+    service: str | None = None,
+    level: str | None = None,
     limit: int = 100,
-    authorization: Optional[str] = Header(None),
+    authorization: str | None = Header(None),
 ) -> list[dict[str, Any]]:
     verify_bearer(authorization)
     results = _logs
     if service:
-        results = [l for l in results if l.service == service]
+        results = [entry for entry in results if entry.service == service]
     if level:
-        results = [l for l in results if l.level == level.upper()]
-    return [l.to_dict() for l in results[-limit:]]
+        results = [entry for entry in results if entry.level == level.upper()]
+    return [entry.to_dict() for entry in results[-limit:]]

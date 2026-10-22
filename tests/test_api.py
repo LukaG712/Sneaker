@@ -1,14 +1,13 @@
 """Tests for Sneaker observability service."""
 
 import os
-import pytest
+
 from fastapi.testclient import TestClient
 
 # Set API_KEY BEFORE importing the app module
 os.environ["API_KEY"] = "test-key"
 
 from sneaker.api import app
-
 
 client = TestClient(app)
 HEADERS = {"Authorization": "Bearer test-key"}

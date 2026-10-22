@@ -18,10 +18,9 @@ import os
 import sqlite3
 import time
 import uuid
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Optional
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from enum import StrEnum
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +28,7 @@ DATA_DIR = os.getenv("SNEAKER_DATA_DIR", os.path.join(os.path.dirname(__file__),
 ALERTS_DB_PATH = os.getenv("SNEAKER_ALERTS_DB_PATH", os.path.join(DATA_DIR, "alerts.db"))
 
 
-class AlertSeverity(str, Enum):
+class AlertSeverity(StrEnum):
     INFO = "info"
     WARNING = "warning"
     CRITICAL = "critical"
@@ -133,7 +132,7 @@ def _ensure_tables():
                 condition TEXT,
                 channels TEXT DEFAULT '["all"]'
             );
-            
+
             CREATE TABLE IF NOT EXISTS alert_fired (
                 id TEXT PRIMARY KEY,
                 rule_id TEXT NOT NULL,
@@ -145,17 +144,17 @@ def _ensure_tables():
                 dedup_key TEXT,
                 acknowledged INTEGER DEFAULT 0
             );
-            
+
             CREATE INDEX IF NOT EXISTS idx_alert_triggered ON alert_fired(triggered_at);
             CREATE INDEX IF NOT EXISTS idx_alert_rule ON alert_fired(rule_id);
             CREATE INDEX IF NOT EXISTS idx_alert_dedup ON alert_fired(dedup_key);
         """)
         conn.commit()
-        
+
         # Seed default rules
         for rule in DEFAULT_RULES:
             conn.execute("""
-                INSERT OR IGNORE INTO alert_rules 
+                INSERT OR IGNORE INTO alert_rules
                 (id, name, description, severity, enabled, cooldown_seconds, threshold, condition, channels)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
@@ -185,7 +184,7 @@ class AlertManager:
         finally:
             conn.close()
 
-    def get_rule(self, rule_id: str) -> Optional[dict]:
+    def get_rule(self, rule_id: str) -> dict | None:
         conn = _get_connection()
         try:
             row = conn.execute("SELECT * FROM alert_rules WHERE id = ?", (rule_id,)).fetchone()
@@ -221,9 +220,9 @@ class AlertManager:
         finally:
             conn.close()
 
-    def evaluate(self, condition: str, value: float = 1.0, context: dict = None) -> Optional[Alert]:
+    def evaluate(self, condition: str, value: float = 1.0, context: dict = None) -> Alert | None:
         """Evaluate alert rules against a condition and value.
-        
+
         Returns a fired alert if any rule matches, None otherwise.
         """
         conn = _get_connection()
@@ -246,13 +245,13 @@ class AlertManager:
             if context:
                 ctx_key = ":".join(f"{k}={v}" for k, v in sorted(context.items())[:3])
                 dedup_key = f"{dedup_key}:{ctx_key}"
-            
+
             dedup_hash = hashlib.md5(dedup_key.encode()).hexdigest()[:12]
-            
+
             cooldown = rule.get("cooldown_seconds", 300)
             now = time.time()
             last_fired = self._last_fired.get(dedup_hash, 0)
-            
+
             if now - last_fired < cooldown:
                 # Increment count but don't fire new alert
                 conn = _get_connection()
@@ -275,10 +274,10 @@ class AlertManager:
                 name=rule["name"],
                 severity=AlertSeverity(rule["severity"]),
                 message=f"{rule['name']}: {context or {}}",
-                triggered_at=datetime.now(timezone.utc).isoformat(),
+                triggered_at=datetime.now(UTC).isoformat(),
                 dedup_key=dedup_hash,
             )
-            
+
             # Store in DB
             conn = _get_connection()
             try:
@@ -329,9 +328,9 @@ class AlertManager:
         if severity:
             conditions.append("severity = ?")
             params.append(severity)
-        
+
         where = f"WHERE {' AND '.join(conditions)} " if conditions else ""
-        
+
         conn = _get_connection()
         try:
             rows = conn.execute(
@@ -362,11 +361,11 @@ class AlertManager:
                 "SELECT severity, COUNT(*) as c FROM alert_fired GROUP BY severity"
             ).fetchall():
                 by_severity[row["severity"]] = row["c"]
-            
+
             unacknowledged = conn.execute(
                 "SELECT COUNT(*) as c FROM alert_fired WHERE acknowledged = 0"
             ).fetchone()["c"]
-            
+
             return {
                 "total_alerts": total,
                 "unacknowledged": unacknowledged,

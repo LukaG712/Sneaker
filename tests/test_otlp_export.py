@@ -1,18 +1,16 @@
 """Tests for Sneaker OTLP export module."""
 
 import json
-import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
 
+from sneaker.models import LogEntry, MetricPoint, TraceSpan
 from sneaker.otlp_export import (
-    parse_otlp_traces,
-    parse_otlp_metrics,
-    parse_otlp_logs,
-    register_stores,
     OTLP_ENDPOINT,
     OTLP_INSECURE,
+    parse_otlp_logs,
+    parse_otlp_metrics,
+    parse_otlp_traces,
+    register_stores,
 )
-from sneaker.models import MetricPoint, TraceSpan, LogEntry
 
 
 class TestOTLPTracesParsing:

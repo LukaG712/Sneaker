@@ -1,7 +1,7 @@
 """Data models for Sneaker observability service."""
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID, uuid4
 
 
@@ -10,9 +10,9 @@ class MetricPoint:
         self,
         name: str,
         value: float,
-        labels: Optional[dict[str, str]] = None,
-        timestamp: Optional[datetime] = None,
-        id: Optional[UUID] = None,
+        labels: dict[str, str] | None = None,
+        timestamp: datetime | None = None,
+        id: UUID | None = None,
     ):
         self.id = id or uuid4()
         self.name = name
@@ -36,10 +36,10 @@ class TraceSpan:
         trace_id: str,
         operation: str,
         duration_ms: float,
-        service: Optional[str] = None,
-        parent_id: Optional[str] = None,
-        span_id: Optional[str] = None,
-        timestamp: Optional[datetime] = None,
+        service: str | None = None,
+        parent_id: str | None = None,
+        span_id: str | None = None,
+        timestamp: datetime | None = None,
     ):
         self.span_id = span_id or str(uuid4())
         self.trace_id = trace_id
@@ -66,10 +66,10 @@ class LogEntry:
         self,
         level: str,
         message: str,
-        service: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
-        timestamp: Optional[datetime] = None,
-        id: Optional[UUID] = None,
+        service: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        timestamp: datetime | None = None,
+        id: UUID | None = None,
     ):
         self.id = id or uuid4()
         self.level = level.upper()
