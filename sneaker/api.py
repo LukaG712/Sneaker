@@ -44,6 +44,50 @@ async def health() -> dict[str, str]:
     return {"status": "ok", "service": "Sneaker"}
 
 
+@app.get("/api/capabilities")
+async def capabilities() -> dict:
+    """Report the capabilities supported by this Sneaker instance."""
+    return {
+        "service": "Sneaker",
+        "version": "1.1.0",
+        "features": {
+            "structured_logging": {
+                "supported": True,
+                "description": "JSON structured log aggregation",
+            },
+            "otlp_traces": {
+                "supported": True,
+                "description": "OpenTelemetry trace ingestion and export",
+            },
+            "otlp_metrics": {
+                "supported": True,
+                "description": "OpenTelemetry metric ingestion and export",
+            },
+            "otlp_logs": {
+                "supported": True,
+                "description": "OpenTelemetry log ingestion and export",
+            },
+            "alerting": {
+                "supported": True,
+                "description": "Configurable alerting rules and notifications",
+            },
+            "dashboards": {
+                "supported": True,
+                "description": "Observability dashboards",
+            },
+            "external_otlp_forwarding": {
+                "supported": True,
+                "description": "Forward telemetry to external OTLP collectors",
+            },
+            "persistent_storage": {
+                "supported": True,
+                "description": "SQLite persistent telemetry storage",
+            },
+        },
+        "api_versions": ["v1"],
+    }
+
+
 # ─── Metrics ────────────────────────────────────────────────────
 
 @app.post("/api/metrics")
