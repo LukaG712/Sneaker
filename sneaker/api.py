@@ -1,9 +1,10 @@
 """FastAPI application for Sneaker observability service."""
 
 import os
+import hmac
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Header
 
 from sneaker.models import MetricPoint, TraceSpan, LogEntry
 
@@ -22,8 +23,13 @@ _traces: list[TraceSpan] = []
 _logs: list[LogEntry] = []
 
 
-def verify_key(x_key: Optional[str] = Query(None)) -> None:
-    if x_key != API_KEY:
+def verify_bearer(authorization: Optional[str] = Header(None)) -> None:
+    """Verify Bearer token in Authorization header."""
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
+    else:
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header. Use: Authorization: Bearer <key>")
+    if not hmac.compare_digest(token, API_KEY):
         raise HTTPException(status_code=401, detail="Invalid API key")
 
 
@@ -35,8 +41,8 @@ async def health() -> dict[str, str]:
 # ─── Metrics ────────────────────────────────────────────────────
 
 @app.post("/api/metrics")
-async def record_metric(data: dict[str, Any], x_key: Optional[str] = Query(None)) -> dict[str, Any]:
-    verify_key(x_key)
+async def record_metric(data: dict[str, Any], authorization: Optional[str] = Header(None)) -> dict[str, Any]:
+    verify_bearer(authorization)
     metric = MetricPoint(name=data["name"], value=float(data["value"]), labels=data.get("labels"))
     _metrics.append(metric)
     return metric.to_dict()
@@ -46,9 +52,9 @@ async def record_metric(data: dict[str, Any], x_key: Optional[str] = Query(None)
 async def query_metrics(
     name: Optional[str] = None,
     limit: int = 100,
-    x_key: Optional[str] = Query(None),
+    authorization: Optional[str] = Header(None),
 ) -> list[dict[str, Any]]:
-    verify_key(x_key)
+    verify_bearer(authorization)
     results = _metrics
     if name:
         results = [m for m in results if m.name == name]
@@ -58,8 +64,8 @@ async def query_metrics(
 # ─── Traces ─────────────────────────────────────────────────────
 
 @app.post("/api/traces")
-async def record_trace(data: dict[str, Any], x_key: Optional[str] = Query(None)) -> dict[str, Any]:
-    verify_key(x_key)
+async def record_trace(data: dict[str, Any], authorization: Optional[str] = Header(None)) -> dict[str, Any]:
+    verify_bearer(authorization)
     span = TraceSpan(
         trace_id=data["trace_id"],
         operation=data["operation"],
@@ -76,9 +82,9 @@ async def query_traces(
     trace_id: Optional[str] = None,
     service: Optional[str] = None,
     limit: int = 100,
-    x_key: Optional[str] = Query(None),
+    authorization: Optional[str] = Header(None),
 ) -> list[dict[str, Any]]:
-    verify_key(x_key)
+    verify_bearer(authorization)
     results = _traces
     if trace_id:
         results = [t for t in results if t.trace_id == trace_id]
@@ -90,8 +96,8 @@ async def query_traces(
 # ─── Logs ───────────────────────────────────────────────────────
 
 @app.post("/api/logs")
-async def record_log(data: dict[str, Any], x_key: Optional[str] = Query(None)) -> dict[str, Any]:
-    verify_key(x_key)
+async def record_log(data: dict[str, Any], authorization: Optional[str] = Header(None)) -> dict[str, Any]:
+    verify_bearer(authorization)
     entry = LogEntry(
         level=data["level"],
         message=data["message"],
@@ -107,9 +113,9 @@ async def query_logs(
     service: Optional[str] = None,
     level: Optional[str] = None,
     limit: int = 100,
-    x_key: Optional[str] = Query(None),
+    authorization: Optional[str] = Header(None),
 ) -> list[dict[str, Any]]:
-    verify_key(x_key)
+    verify_bearer(authorization)
     results = _logs
     if service:
         results = [l for l in results if l.service == service]

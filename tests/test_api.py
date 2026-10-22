@@ -4,19 +4,14 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
-from sneaker.api import app, _metrics, _traces, _logs
+# Set API_KEY BEFORE importing the app module
+os.environ["API_KEY"] = "test-key"
 
-
-@pytest.fixture(autouse=True)
-def clear_data():
-    _metrics.clear()
-    _traces.clear()
-    _logs.clear()
-    os.environ["API_KEY"] = "test-key"
-    yield
+from sneaker.api import app
 
 
 client = TestClient(app)
+HEADERS = {"Authorization": "Bearer test-key"}
 
 
 class TestHealth:
@@ -33,7 +28,7 @@ class TestMetrics:
         response = client.post(
             "/api/metrics",
             json={"name": "requests_total", "value": 42, "labels": {"method": "GET"}},
-            params={"x_key": "test-key"},
+            headers=HEADERS,
         )
         assert response.status_code == 200
         data = response.json()
@@ -41,8 +36,8 @@ class TestMetrics:
         assert data["value"] == 42.0
 
     def test_query_metrics(self):
-        client.post("/api/metrics", json={"name": "cpu", "value": 1.5}, params={"x_key": "test-key"})
-        response = client.get("/api/metrics", params={"x_key": "test-key", "name": "cpu"})
+        client.post("/api/metrics", json={"name": "cpu", "value": 1.5}, headers=HEADERS)
+        response = client.get("/api/metrics", headers=HEADERS, params={"name": "cpu"})
         assert response.status_code == 200
         assert len(response.json()) == 1
 
@@ -52,7 +47,7 @@ class TestTraces:
         response = client.post(
             "/api/traces",
             json={"trace_id": "t1", "operation": "GET /api", "duration_ms": 120.5, "service": "Greenie"},
-            params={"x_key": "test-key"},
+            headers=HEADERS,
         )
         assert response.status_code == 200
         data = response.json()
@@ -62,9 +57,9 @@ class TestTraces:
         client.post(
             "/api/traces",
             json={"trace_id": "t2", "operation": "POST /api", "duration_ms": 50},
-            params={"x_key": "test-key"},
+            headers=HEADERS,
         )
-        response = client.get("/api/traces", params={"x_key": "test-key", "trace_id": "t2"})
+        response = client.get("/api/traces", headers=HEADERS, params={"trace_id": "t2"})
         assert response.status_code == 200
         assert len(response.json()) == 1
 
@@ -74,7 +69,7 @@ class TestLogs:
         response = client.post(
             "/api/logs",
             json={"level": "info", "message": "Server started", "service": "Gobber"},
-            params={"x_key": "test-key"},
+            headers=HEADERS,
         )
         assert response.status_code == 200
         data = response.json()
@@ -84,14 +79,22 @@ class TestLogs:
         client.post(
             "/api/logs",
             json={"level": "error", "message": "DB connection failed", "service": "Gobber"},
-            params={"x_key": "test-key"},
+            headers=HEADERS,
         )
-        response = client.get("/api/logs", params={"x_key": "test-key", "level": "error"})
+        response = client.get("/api/logs", headers=HEADERS, params={"level": "error"})
         assert response.status_code == 200
         assert len(response.json()) == 1
 
 
 class TestAuth:
     def test_invalid_key(self):
-        response = client.get("/api/metrics", params={"x_key": "wrong"})
+        response = client.get("/api/metrics", headers={"Authorization": "Bearer wrong"})
+        assert response.status_code == 401
+
+    def test_missing_auth(self):
+        response = client.get("/api/metrics")
+        assert response.status_code == 401
+
+    def test_query_param_rejected(self):
+        response = client.get("/api/metrics", params={"x_key": "test-key"})
         assert response.status_code == 401

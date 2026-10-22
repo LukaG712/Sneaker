@@ -39,3 +39,7 @@ python -m uvicorn sneaker.api:app --host 0.0.0.0 --port 8086
 ## License
 
 MIT
+
+---
+
+> **Disclaimer:** This project is a fan-made, independent software project. It is not affiliated with, endorsed by, or in any way connected to Nintendo, Next Level Games, or any of their subsidiaries. All Luigi's Mansion trademarks and character names are property of their respective owners. Service names are used purely for thematic inspiration.
