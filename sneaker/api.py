@@ -7,6 +7,7 @@ from typing import Any, Optional
 from fastapi import FastAPI, HTTPException, Header
 
 from sneaker.models import MetricPoint, TraceSpan, LogEntry
+from sneaker import otlp_export
 
 
 app = FastAPI(
@@ -21,6 +22,12 @@ API_KEY = os.getenv("API_KEY", "Sneaker-dev-key-change-me")
 _metrics: list[MetricPoint] = []
 _traces: list[TraceSpan] = []
 _logs: list[LogEntry] = []
+
+# Register stores with OTLP export module
+otlp_export.register_stores(_metrics, _traces, _logs)
+
+# Register OTLP routes
+otlp_export.register_otlp_routes(app)
 
 
 def verify_bearer(authorization: Optional[str] = Header(None)) -> None:
