@@ -19,7 +19,12 @@ app = FastAPI(
     version="1.0.0",
 )
 
-API_KEY = os.getenv("API_KEY", "Sneaker-dev-key-change-me")
+_api_key_raw = os.getenv("API_KEY")
+if not _api_key_raw:
+    raise RuntimeError(
+        "API_KEY environment variable is not set. Refusing to start Sneaker without a configured API key."
+    )
+API_KEY = _api_key_raw
 DB_PATH = os.getenv("DB_PATH", "/app/data/sneaker.db")
 
 # SQLite persistent storage
@@ -153,46 +158,8 @@ async def health() -> dict[str, str]:
 
 @app.get("/api/capabilities")
 async def capabilities() -> dict:
-    """Report the capabilities supported by this Sneaker instance."""
-    return {
-        "service": "Sneaker",
-        "version": "1.1.0",
-        "features": {
-            "structured_logging": {
-                "supported": True,
-                "description": "JSON structured log aggregation",
-            },
-            "otlp_traces": {
-                "supported": True,
-                "description": "OpenTelemetry trace ingestion and export",
-            },
-            "otlp_metrics": {
-                "supported": True,
-                "description": "OpenTelemetry metric ingestion and export",
-            },
-            "otlp_logs": {
-                "supported": True,
-                "description": "OpenTelemetry log ingestion and export",
-            },
-            "alerting": {
-                "supported": True,
-                "description": "Configurable alerting rules and notifications",
-            },
-            "dashboards": {
-                "supported": True,
-                "description": "Observability dashboards",
-            },
-            "external_otlp_forwarding": {
-                "supported": True,
-                "description": "Forward telemetry to external OTLP collectors",
-            },
-            "persistent_storage": {
-                "supported": True,
-                "description": "SQLite persistent telemetry storage",
-            },
-        },
-        "api_versions": ["v1"],
-    }
+    """Return minimal service identification."""
+    return {"service": "Sneaker"}
 
 
 # ─── Metrics ────────────────────────────────────────────────────
