@@ -1,6 +1,6 @@
 """Data models for Sneaker observability service."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -18,7 +18,7 @@ class MetricPoint:
         self.name = name
         self.value = value
         self.labels = labels or {}
-        self.timestamp = timestamp or datetime.utcnow()
+        self.timestamp = timestamp or datetime.now(timezone.utc)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -47,7 +47,7 @@ class TraceSpan:
         self.duration_ms = duration_ms
         self.service = service
         self.parent_id = parent_id
-        self.timestamp = timestamp or datetime.utcnow()
+        self.timestamp = timestamp or datetime.now(timezone.utc)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -76,7 +76,7 @@ class LogEntry:
         self.message = message
         self.service = service
         self.metadata = metadata or {}
-        self.timestamp = timestamp or datetime.utcnow()
+        self.timestamp = timestamp or datetime.now(timezone.utc)
 
     def to_dict(self) -> dict[str, Any]:
         return {

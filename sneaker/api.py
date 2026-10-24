@@ -73,9 +73,25 @@ def _init_db():
 _init_db()
 
 # In-memory storage (backed by SQLite for persistence)
+# Max size limit to prevent unbounded memory growth
+_MAX_METRICS = 10000
+_MAX_TRACES = 10000
+_MAX_LOGS = 10000
+
 _metrics: list[MetricPoint] = []
 _traces: list[TraceSpan] = []
 _logs: list[LogEntry] = []
+
+
+def _safe_json_loads(value, default=None):
+    """Safely parse JSON, returning default on failure instead of crashing."""
+    if not value:
+        return default if default is not None else {}
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return default if default is not None else {}
+
 
 # Load persisted data from SQLite into memory on startup
 def _load_from_db():
@@ -86,7 +102,7 @@ def _load_from_db():
             _metrics.append(MetricPoint(
                 name=row[0],
                 value=row[1],
-                labels=json.loads(row[2]) if row[2] else {},
+                labels=_safe_json_loads(row[2]),
                 timestamp=row[3],
             ))
         # Load traces
@@ -98,7 +114,7 @@ def _load_from_db():
                 operation=row[3],
                 duration_ms=row[4] or 0,
                 status=row[5],
-                attributes=json.loads(row[6]) if row[6] else {},
+                attributes=_safe_json_loads(row[6]),
                 timestamp=row[7],
             ))
         # Load logs
@@ -107,7 +123,7 @@ def _load_from_db():
                 level=row[0],
                 message=row[1],
                 service=row[2],
-                metadata=json.loads(row[3]) if row[3] else {},
+                metadata=_safe_json_loads(row[3]),
                 timestamp=row[4],
             ))
 
@@ -186,6 +202,9 @@ async def record_metric(data: dict[str, Any], authorization: str | None = Header
     verify_bearer(authorization)
     metric = MetricPoint(name=data["name"], value=float(data["value"]), labels=data.get("labels"))
     _metrics.append(metric)
+    # Evict oldest entries if over max size
+    if len(_metrics) > _MAX_METRICS:
+        _metrics[:len(_metrics) - _MAX_METRICS] = []
     # Persist to SQLite
     with _get_db() as conn:
         conn.execute(
@@ -283,6 +302,9 @@ async def record_trace(data: dict[str, Any], authorization: str | None = Header(
         parent_id=data.get("parent_id"),
     )
     _traces.append(span)
+    # Evict oldest entries if over max size
+    if len(_traces) > _MAX_TRACES:
+        _traces[:len(_traces) - _MAX_TRACES] = []
     # Persist to SQLite
     with _get_db() as conn:
         conn.execute(
@@ -321,6 +343,9 @@ async def record_log(data: dict[str, Any], authorization: str | None = Header(No
         metadata=data.get("metadata"),
     )
     _logs.append(entry)
+    # Evict oldest entries if over max size
+    if len(_logs) > _MAX_LOGS:
+        _logs[:len(_logs) - _MAX_LOGS] = []
     # Persist to SQLite
     with _get_db() as conn:
         conn.execute(
