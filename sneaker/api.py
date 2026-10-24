@@ -1,8 +1,12 @@
 """FastAPI application for Sneaker observability service."""
 
 import hmac
+import json
 import os
+import sqlite3
+from pathlib import Path
 from typing import Any
+from contextlib import contextmanager
 
 from fastapi import FastAPI, Header, HTTPException
 
@@ -16,11 +20,98 @@ app = FastAPI(
 )
 
 API_KEY = os.getenv("API_KEY", "Sneaker-dev-key-change-me")
+DB_PATH = os.getenv("DB_PATH", "/app/data/sneaker.db")
 
-# In-memory storage
+# SQLite persistent storage
+@contextmanager
+def _get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+def _init_db():
+    # Use Path for safe directory creation (handles edge cases with relative paths)
+    Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
+    with _get_db() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                value REAL NOT NULL,
+                labels TEXT DEFAULT '{}',
+                timestamp TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS traces (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trace_id TEXT NOT NULL,
+                span_id TEXT NOT NULL,
+                parent_span_id TEXT,
+                name TEXT NOT NULL,
+                duration_ms REAL,
+                status TEXT,
+                attributes TEXT DEFAULT '{}',
+                timestamp TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                level TEXT NOT NULL,
+                message TEXT NOT NULL,
+                service TEXT,
+                attributes TEXT DEFAULT '{}',
+                timestamp TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+
+_init_db()
+
+# In-memory storage (backed by SQLite for persistence)
 _metrics: list[MetricPoint] = []
 _traces: list[TraceSpan] = []
 _logs: list[LogEntry] = []
+
+# Load persisted data from SQLite into memory on startup
+def _load_from_db():
+    """Load previously stored data from SQLite into in-memory lists."""
+    with _get_db() as conn:
+        # Load metrics
+        for row in conn.execute("SELECT name, value, labels, timestamp FROM metrics ORDER BY id"):
+            _metrics.append(MetricPoint(
+                name=row[0],
+                value=row[1],
+                labels=json.loads(row[2]) if row[2] else {},
+                timestamp=row[3],
+            ))
+        # Load traces
+        for row in conn.execute("SELECT trace_id, span_id, parent_span_id, name, duration_ms, status, attributes, timestamp FROM traces ORDER BY id"):
+            _traces.append(TraceSpan(
+                trace_id=row[0],
+                span_id=row[1],
+                parent_id=row[2],
+                operation=row[3],
+                duration_ms=row[4] or 0,
+                status=row[5],
+                attributes=json.loads(row[6]) if row[6] else {},
+                timestamp=row[7],
+            ))
+        # Load logs
+        for row in conn.execute("SELECT level, message, service, attributes, timestamp FROM logs ORDER BY id"):
+            _logs.append(LogEntry(
+                level=row[0],
+                message=row[1],
+                service=row[2],
+                metadata=json.loads(row[3]) if row[3] else {},
+                timestamp=row[4],
+            ))
+
+_load_from_db()
 
 # Register stores with OTLP export module
 otlp_export.register_stores(_metrics, _traces, _logs)
@@ -95,6 +186,13 @@ async def record_metric(data: dict[str, Any], authorization: str | None = Header
     verify_bearer(authorization)
     metric = MetricPoint(name=data["name"], value=float(data["value"]), labels=data.get("labels"))
     _metrics.append(metric)
+    # Persist to SQLite
+    with _get_db() as conn:
+        conn.execute(
+            "INSERT INTO metrics (name, value, labels, timestamp) VALUES (?, ?, ?, ?)",
+            (metric.name, metric.value, json.dumps(metric.labels or {}), metric.timestamp),
+        )
+        conn.commit()
     return metric.to_dict()
 
 
@@ -185,6 +283,13 @@ async def record_trace(data: dict[str, Any], authorization: str | None = Header(
         parent_id=data.get("parent_id"),
     )
     _traces.append(span)
+    # Persist to SQLite
+    with _get_db() as conn:
+        conn.execute(
+            "INSERT INTO traces (trace_id, span_id, parent_span_id, name, duration_ms, status, attributes, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (span.trace_id, span.span_id, span.parent_id, span.operation, span.duration_ms, span.status or '', json.dumps(span.attributes or {}), span.timestamp),
+        )
+        conn.commit()
     return span.to_dict()
 
 
@@ -216,6 +321,13 @@ async def record_log(data: dict[str, Any], authorization: str | None = Header(No
         metadata=data.get("metadata"),
     )
     _logs.append(entry)
+    # Persist to SQLite
+    with _get_db() as conn:
+        conn.execute(
+            "INSERT INTO logs (level, message, service, attributes, timestamp) VALUES (?, ?, ?, ?, ?)",
+            (entry.level, entry.message, entry.service, json.dumps(entry.metadata or {}), entry.timestamp),
+        )
+        conn.commit()
     return entry.to_dict()
 
 
