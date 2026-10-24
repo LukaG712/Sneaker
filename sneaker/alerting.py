@@ -195,15 +195,16 @@ class AlertManager:
     def update_rule(self, rule_id: str, **kwargs):
         if not kwargs:
             return
+        # Whitelist allowed columns to prevent SQL injection
+        allowed_columns = {"enabled", "cooldown_seconds", "threshold", "channels", "name", "severity", "condition"}
         sets = []
         values = []
         for key, value in kwargs.items():
+            if key not in allowed_columns:
+                continue
             if key in ("enabled",):
                 sets.append(f"{key} = ?")
                 values.append(1 if value else 0)
-            elif key in ("cooldown_seconds", "threshold"):
-                sets.append(f"{key} = ?")
-                values.append(value)
             elif key == "channels":
                 sets.append("channels = ?")
                 values.append(json.dumps(value) if isinstance(value, list) else value)
