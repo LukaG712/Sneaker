@@ -255,12 +255,17 @@ class AlertManager:
 
             if now - last_fired < cooldown:
                 # Increment count but don't fire new alert
+                # Use a subquery to find the most recent entry since SQLite doesn't support
+                # ORDER BY/LIMIT in UPDATE statements
                 conn = _get_connection()
                 try:
                     conn.execute("""
                         UPDATE alert_fired SET count = count + 1
-                        WHERE rule_id = ? AND dedup_key = ?
-                        ORDER BY triggered_at DESC LIMIT 1
+                        WHERE id = (
+                            SELECT id FROM alert_fired
+                            WHERE rule_id = ? AND dedup_key = ?
+                            ORDER BY triggered_at DESC LIMIT 1
+                        )
                     """, (rule["id"], dedup_hash))
                     conn.commit()
                 finally:
@@ -324,6 +329,11 @@ class AlertManager:
             logger.warning(f"Failed to deliver alert via Poltergeist: {e}")
 
     def list_alerts(self, limit: int = 50, severity: str = None) -> list[dict]:
+        # Validate severity to prevent SQL injection
+        valid_severities = {s.value for s in AlertSeverity}
+        if severity and severity not in valid_severities:
+            severity = None
+
         conditions = []
         params = []
         if severity:
