@@ -21,6 +21,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +111,7 @@ DEFAULT_RULES = [
 
 
 def _get_connection():
-    os.makedirs(os.path.dirname(ALERTS_DB_PATH), exist_ok=True)
+    Path(ALERTS_DB_PATH).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(ALERTS_DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.row_factory = sqlite3.Row
